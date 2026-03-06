@@ -3,95 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visual Sketch Debug</title>
+    <title>Intelligent Visual Sketch</title>
     <style>
-        body { margin: 0; background: #111; color: #eee; font-family: sans-serif; overflow: hidden; }
+        body { margin: 0; overflow: hidden; background-color: #111; color: #eee; font-family: 'Helvetica Neue', Arial, sans-serif; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-        .ui { position: relative; z-index: 10; padding: 20px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
-        .controls { background: rgba(0,0,0,0.7); padding: 15px; border-radius: 10px; display: flex; gap: 10px; }
-        button { padding: 12px 20px; font-size: 16px; border-radius: 5px; border: none; background: #007bff; color: white; }
-        button:disabled { background: #555; }
-        #log { width: 90%; max-height: 150px; background: rgba(0,0,0,0.8); font-family: monospace; font-size: 12px; padding: 10px; overflow-y: auto; border: 1px solid #444; color: #0f0; }
+        .ui-overlay { position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; padding-top: 20px; pointer-events: none; }
+        .controls { background: rgba(30, 30, 30, 0.85); padding: 15px 25px; border-radius: 50px; display: flex; gap: 15px; align-items: center; pointer-events: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #444; position: fixed; bottom: 30px; }
+        button, select { padding: 10px 18px; font-size: 14px; border-radius: 25px; border: none; cursor: pointer; transition: 0.3s; outline: none; }
+        #startBtn { background: #007bff; color: white; }
+        #startBtn:hover { background: #0056b3; }
+        #startBtn:disabled { background: #444; color: #888; cursor: default; }
+        #stopBtn { background: #dc3545; color: white; }
+        select { background: #333; color: white; border: 1px solid #555; }
+        #status { font-size: 12px; color: #aaa; margin-top: 10px; text-shadow: 1px 1px 2px #000; }
     </style>
 </head>
 <body>
 
-    <div class="ui">
-        <h2>Visual Sketch Debug</h2>
+    <div class="ui-overlay">
+        <h2 style="font-weight: 200; letter-spacing: 2px;">Visual Sketch</h2>
+        <div id="status">Ready to Start</div>
         <div class="controls">
-            <button id="startBtn">マイクを開始</button>
-            <button id="stopBtn" disabled>停止</button>
+            <button id="startBtn">START</button>
+            <button id="stopBtn" disabled>STOP</button>
+            <select id="styleSelect">
+                <option value="circles">抽象円 (Abstract)</option>
+                <option value="waves">浮世絵波風 (Ukiyo-e)</option>
+            </select>
         </div>
-        <div id="log">ログ: 準備完了。ボタンを押してください。</div>
     </div>
 
     <canvas id="visCanvas"></canvas>
 
     <script>
-        // ログ出力用関数
-        const logDiv = document.getElementById('log');
-        function guiLog(msg) {
-            const time = new Date().toLocaleTimeString();
-            logDiv.innerHTML += `[${time}] ${msg}<br>`;
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
         let audioContext, analyser, source, animationId, dataArray;
         const canvas = document.getElementById('visCanvas');
         const ctx = canvas.getContext('2d');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const styleSelect = document.getElementById('styleSelect');
+        const statusDiv = document.getElementById('status');
 
-        // キャンバスリサイズ
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
         window.onresize = resize;
         resize();
 
-        // メイン処理
         startBtn.onclick = async () => {
-            guiLog("ボタンが押されました");
-            
             try {
-                // 1. AudioContextの作成
                 if (!audioContext) {
-                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                    if (!AudioContextClass) {
-                        throw new Error("このブラウザはWeb Audio APIをサポートしていません");
-                    }
-                    audioContext = new AudioContextClass();
-                    guiLog("AudioContextを作成しました");
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-
-                // 2. iOSのサスペンド解除
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
-                    guiLog("AudioContextを再開(resume)しました");
-                }
-
-                // 3. マイクアクセス
-                guiLog("マイク許可をリクエスト中...");
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error("getUserMedia が未定義です（HTTPS接続ですか？）");
-                }
+                if (audioContext.state === 'suspended') await audioContext.resume();
 
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                guiLog("マイク許可が降りました");
-
-                // 4. 解析器のセットアップ
                 source = audioContext.createMediaStreamSource(stream);
                 analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
+                analyser.fftSize = 512;
                 source.connect(analyser);
                 dataArray = new Uint8Array(analyser.frequencyBinCount);
 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
-                guiLog("解析を開始します！");
-
+                statusDiv.textContent = "Listening...";
                 draw();
             } catch (err) {
-                guiLog(`エラー発生: ${err.name} - ${err.message}`);
-                console.error(err);
+                statusDiv.textContent = "Error: " + err.message;
             }
         };
 
@@ -101,25 +77,102 @@
             cancelAnimationFrame(animationId);
             startBtn.disabled = false;
             stopBtn.disabled = true;
-            guiLog("停止しました");
+            statusDiv.textContent = "Stopped";
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
 
         function draw() {
             animationId = requestAnimationFrame(draw);
             analyser.getByteFrequencyData(dataArray);
+            
+            if (styleSelect.value === 'circles') {
+                drawCircles();
+            } else {
+                drawWaves();
+            }
+        }
 
-            ctx.fillStyle = 'rgba(17, 17, 17, 0.2)';
+        // --- スタイル1: 抽象円 ---
+        function drawCircles() {
+            // 残像を残す
+            ctx.fillStyle = 'rgba(17, 17, 17, 0.15)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let x = 0;
+            const bufferLength = dataArray.length;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
 
-            for (let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i];
-                ctx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`;
-                ctx.fillRect(x, canvas.height - barHeight * 2, barWidth, barHeight * 2);
-                x += barWidth + 1;
+            // 音域ごとにエネルギーを計算
+            let low = 0, mid = 0, high = 0;
+            for(let i=0; i<10; i++) low += dataArray[i];
+            for(let i=10; i<50; i++) mid += dataArray[i];
+            for(let i=50; i<100; i++) high += dataArray[i];
+
+            // 低音：赤い大きな揺らぎ
+            drawBlob(cx - canvas.width*0.2, cy, (low/10) * 2, 'rgba(255, 60, 60, 0.6)');
+            // 中音：緑のコア
+            drawBlob(cx, cy, (mid/40) * 2.5, 'rgba(60, 255, 120, 0.6)');
+            // 高音：青い繊細な粒子
+            drawBlob(cx + canvas.width*0.2, cy, (high/50) * 3, 'rgba(60, 150, 255, 0.6)');
+        }
+
+        function drawBlob(x, y, radius, color) {
+            if (radius < 10) radius = 10;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.shadowBlur = radius / 2;
+            ctx.shadowColor = color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // --- スタイル2: 浮世絵波風 ---
+        function drawWaves() {
+            ctx.fillStyle = '#f7f1e3'; // 和紙色
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            let lowEnergy = 0;
+            for(let i=0; i<10; i++) lowEnergy += dataArray[i];
+            lowEnergy /= 10;
+
+            const baseHeight = canvas.height * 0.7;
+            const amplitude = lowEnergy * 1.5;
+
+            // 遠くの波
+            ctx.fillStyle = 'rgba(30, 80, 150, 0.3)';
+            drawSingleWave(baseHeight + 20, amplitude * 0.5, 0.01, 0.005);
+            
+            // メインの波（藍色）
+            ctx.fillStyle = '#114488';
+            drawSingleWave(baseHeight, amplitude, 0.02, 0.01);
+
+            // 高音による飛沫（しぶき）
+            let highEnergy = 0;
+            for(let i=100; i<200; i++) highEnergy += dataArray[i];
+            highEnergy /= 100;
+
+            if (highEnergy > 20) {
+                ctx.fillStyle = 'white';
+                for(let i=0; i < highEnergy/2; i++) {
+                    const sx = Math.random() * canvas.width;
+                    const sy = baseHeight - Math.random() * highEnergy * 5;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, Math.random() * 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
+        }
+
+        function drawSingleWave(yOffset, amp, freq, speed) {
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            for (let x = 0; x <= canvas.width; x += 5) {
+                const y = yOffset + Math.sin(x * freq + Date.now() * speed) * amp;
+                ctx.lineTo(x, y);
+            }
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.fill();
         }
     </script>
 </body>
