@@ -1,3 +1,8 @@
+/**
+ * Intelligent Visual Sketch - app.js
+ * リアルタイム・オーディオ・ビジュアライザー
+ */
+
 let audioContext;
 let analyser;
 let source;
@@ -19,17 +24,28 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// マイクを開始する
+/**
+ * マイクを開始する
+ * iOS Safari対策としてユーザー操作（クリック）内で AudioContext を再開させる
+ */
 async function startMic() {
     try {
+        // AudioContextの初期化
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
 
+        // iOS対策: ユーザー操作の中で明示的にresumeを呼び出す必要がある
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        // マイクストリームの取得
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
         source = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 1024; // 解析の粒度（2の倍数）
+        analyser.fftSize = 1024; // 解析の解像度
 
         source.connect(analyser);
 
@@ -40,6 +56,7 @@ async function startMic() {
         startBtn.disabled = true;
         stopBtn.disabled = false;
 
+        // 描画ループ開始
         requestAnimationFrame(draw);
     } catch (err) {
         console.error('マイクのアクセスに失敗しました。', err);
@@ -47,7 +64,9 @@ async function startMic() {
     }
 }
 
-// マイクを停止する
+/**
+ * マイクを停止する
+ */
 function stopMic() {
     if (audioContext && audioContext.state !== 'closed') {
         source.disconnect();
@@ -63,7 +82,9 @@ function stopMic() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-// 描画ループ関数
+/**
+ * 描画ループ関数
+ */
 function draw() {
     animationId = requestAnimationFrame(draw);
     if (!analyser) return;
@@ -79,7 +100,9 @@ function draw() {
     }
 }
 
-// --- 描画スタイル1: 抽象円 (Abstract Circles) ---
+/**
+ * 描画スタイル1: 抽象円 (Abstract Circles)
+ */
 function drawCircles() {
     const bufferLength = analyser.frequencyBinCount;
     
@@ -87,7 +110,6 @@ function drawCircles() {
     ctx.fillStyle = 'rgba(17, 17, 17, 0.1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 周波数帯域を分割（低、中、高）
     const lowEnd = Math.floor(bufferLength * 0.1);
     const midEnd = Math.floor(bufferLength * 0.4);
 
@@ -103,30 +125,31 @@ function drawCircles() {
     for (let i = midEnd; i < bufferLength; i++) highEnergy += dataArray[i];
     highEnergy /= (bufferLength - midEnd);
 
-    // 円を描画
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
 
-    // 低音（左：大きな赤い円、音量で半径が変わる）
+    // 低音: 赤
     ctx.beginPath();
     ctx.arc(cx - 250, cy, lowEnergy * 1.5 + 20, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(255, 50, 50, ${lowEnergy / 255 + 0.1})`;
     ctx.fill();
 
-    // 中音（中央：緑の円）
+    // 中音: 緑
     ctx.beginPath();
     ctx.arc(cx, cy, midEnergy * 1.5 + 20, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(50, 255, 50, ${midEnergy / 255 + 0.1})`;
     ctx.fill();
 
-    // 高音（右：小さな青い円、音量で飛沫が飛ぶように見える）
+    // 高音: 青
     ctx.beginPath();
     ctx.arc(cx + 250, cy, highEnergy * 1.5 + 20, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(50, 50, 255, ${highEnergy / 255 + 0.1})`;
     ctx.fill();
 }
 
-// --- 描画スタイル2: 浮世絵波風 (Ukiyo-e Waves) ---
+/**
+ * 描画スタイル2: 浮世絵波風 (Ukiyo-e Waves)
+ */
 function drawWaves() {
     const bufferLength = analyser.frequencyBinCount;
     
@@ -134,22 +157,19 @@ function drawWaves() {
     ctx.fillStyle = '#f7f1e3';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 低音のエネルギーを波の高さにする
     const lowEnd = Math.floor(bufferLength * 0.1);
     let lowEnergy = 0;
     for (let i = 0; i < lowEnd; i++) lowEnergy += dataArray[i];
     lowEnergy /= lowEnd;
 
-    // 波の基本設定
     const waveHeightBase = canvas.height * 0.3;
-    const waveAmplitude = lowEnergy * 1.8 + 30; // 音量で振幅が変わる
+    const waveAmplitude = lowEnergy * 1.8 + 30;
 
-    // 波を描画
+    // 波の描画
     ctx.fillStyle = '#114488'; // 藍色
     ctx.beginPath();
     ctx.moveTo(0, canvas.height);
     for (let x = 0; x < canvas.width; x++) {
-        // 正弦波で波の形を作る。時間（Date.now()）で動かす
         const y = canvas.height - waveHeightBase + Math.sin(x * 0.02 + Date.now() * 0.01) * waveAmplitude;
         ctx.lineTo(x, y);
     }
@@ -162,14 +182,13 @@ function drawWaves() {
     for (let i = midEnd; i < bufferLength; i++) highEnergy += dataArray[i];
     highEnergy /= (bufferLength - midEnd);
 
-    // 飛沫を描画
+    // 飛沫の描画
     const splashCount = Math.floor(highEnergy / 10);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; // 白い飛沫
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
     for (let i = 0; i < splashCount; i++) {
         ctx.beginPath();
         const splashX = Math.random() * canvas.width;
         const splashYBase = canvas.height - waveHeightBase + Math.sin(splashX * 0.02 + Date.now() * 0.01) * waveAmplitude;
-        // 波の少し上、音量で上に飛び散る
         const splashY = splashYBase - Math.random() * 50 - highEnergy * 0.5;
         const splashSize = Math.random() * highEnergy * 0.1 + 3;
         ctx.arc(splashX, splashY, splashSize, 0, 2 * Math.PI);
@@ -177,6 +196,6 @@ function drawWaves() {
     }
 }
 
-// イベントリスナー
+// イベントリスナーの登録
 startBtn.addEventListener('click', startMic);
 stopBtn.addEventListener('click', stopMic);
